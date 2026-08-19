@@ -1,0 +1,29 @@
+# Postman Local View (служебные файлы синхронизации)
+.postman/
+postman/collections/
+postman/environments/
+postman/globals/
+postman/flows/
+postman/mocks/
+postman/specs/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+
+# Secrets
+.env
+
+# allure
+allure-results/
+
+# macOS
+.DS_Store
