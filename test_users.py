@@ -24,22 +24,33 @@ AUTH_HEADERS = {"x-api-key": api_key}
 def test_request_without_api_key_returns_401():
     response = requests.get(f"{base_url}/api/users", params={"page": 2}, timeout=TIMEOUT)
     assert response.status_code == 401, f"Expected 401 for no api key, got {response.status_code}"
-    error_code = response.json().get("error")
+    body = response.json()
+    error_code = body.get("error")
     assert error_code == "missing_api_key", f"Expected error 'missing_api_key', got {error_code}"
+    assert "message" in body, f"Response has no 'message' field: {body}"
 
-def test_get_users_list_returns_requested_page_api_in_params():
+
+def test_api_key_accepted_in_query_param():
     response = requests.get(f"{base_url}/api/users", params={"page": 2, "api_key": api_key}, timeout=TIMEOUT)
-    assert response.status_code == 200
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    page_number = response.json().get("page")
+    assert page_number == 2, f"Expected page 2, got {page_number}"
+
 
 def test_get_users_list_returns_requested_page():
     response = requests.get(f"{base_url}/api/users", params={"page": 2}, headers=AUTH_HEADERS, timeout=TIMEOUT)
-    assert response.status_code == 200
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
     page_number = response.json().get("page")
-    assert page_number == 2, f"Expected page {2}, got {page_number}"
+    assert page_number == 2, f"Expected page 2, got {page_number}"
+
 
 def test_request_with_invalid_api_key_in_query_returns_403():
-    response = requests.get(f"{base_url}/api/users", params={"page": 2, "api_key": 4353452345}, timeout=TIMEOUT)
-    assert response.status_code == 403
+    response = requests.get(f"{base_url}/api/users", params={"page": 2, "api_key": "definitely_invalid_api_key"},
+                            timeout=TIMEOUT)
+    assert response.status_code == 403, f"Expected 403 for invalid api key, got {response.status_code}"
+    error_code = response.json().get("error")
+    assert error_code == "invalid_api_key", f"Expected error 'invalid_api_key', got {error_code}"
+
 
 def test_get_single_user_returns_expected_user():
     response = requests.get(f"{base_url}/api/users/2", headers=AUTH_HEADERS, timeout=TIMEOUT)
@@ -50,9 +61,11 @@ def test_get_single_user_returns_expected_user():
     assert isinstance(user_id, int), f"Expected 'id' to be int, got {type(user_id).__name__}"
     assert user_id == 2, f"Expected user id 2, got {user_id}"
 
+
 def test_get_nonexistent_user_returns_404():
     response = requests.get(f"{base_url}/api/users/23", headers=AUTH_HEADERS, timeout=TIMEOUT)
     assert response.status_code == 404, f"Expected 404 for nonexistent user, got {response.status_code}"
+
 
 def test_create_user_returns_201():
     payload = {"name": "anton", "job": "qa"}
@@ -63,7 +76,8 @@ def test_create_user_returns_201():
     assert body["job"] == payload["job"], f"Expected job {payload['job']}, got {body['job']}"
     assert "createdAt" in body
     assert "id" in body
-    assert isinstance(body["id"], int), f"Expected 'id' to be int"
+    assert isinstance(body["id"], int), f"Expected 'id' to be int, got {type(body['id']).__name__}"
+
 
 def test_post_malformed_json_returns_400():
     headers = {**AUTH_HEADERS, "Content-Type": "application/json"}
