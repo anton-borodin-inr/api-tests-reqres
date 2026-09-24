@@ -9,8 +9,8 @@ A Python learning project for API testing with `requests` and `pytest`. It cover
 | File | Purpose |
 |---|---|
 | `test_users.py` | Eight classic `/api/users` tests: authentication, pagination, response fields, missing resources and malformed JSON |
-| `test_products.py` | One persistent product lifecycle: POST → GET → PUT → GET → DELETE → GET 404 |
-| `config.py` | Loads and validates the persistent API configuration |
+| `test_products.py` | Four cases: valid-key access, two parametrized authentication rejections, and the persistent product lifecycle |
+| `config.py` | Loads and validates separate Classic ReqRes and Noble settings, with a shared timeout |
 | `conftest.py` | Provides the `api_session` fixture with shared headers and query parameters |
 | `.env.example` | Configuration template without API key values |
 
@@ -44,7 +44,7 @@ Fill in `.env` with your credentials and configuration for both API surfaces. Th
 
 Keep the `REQRES_*` and `NOBLE_*` settings separate. `.env` is ignored by Git; do not commit credentials.
 
-Configuration is validated at import time. Because the root `conftest.py` imports `config.py`, the `NOBLE_*` settings are required even when collecting or running only the classic users tests. The users module also validates its own `REQRES_*` settings when imported.
+Both configuration groups are validated at import time in `config.py`. Exported names such as `reqres_base_url` / `noble_base_url` and `REQRES_AUTH_HEADERS` / `NOBLE_AUTH_HEADERS` keep the API settings separate. Because the root `conftest.py` imports this module, both groups are required even when collecting or running only one test file.
 
 ### Run tests
 
@@ -58,6 +58,18 @@ Run only the persistent lifecycle:
 
 ```bash
 pytest -q test_products.py::test_product_lifecycle
+```
+
+Run only the three Noble authentication cases (GET requests):
+
+```bash
+pytest -q test_products.py -k authentication
+```
+
+Run all four Noble cases, including the lifecycle:
+
+```bash
+pytest -q test_products.py
 ```
 
 Run the classic tests or the complete suite:
@@ -81,14 +93,28 @@ Independent GET requests check persistence: a successful mutation response or an
 
 PATCH is excluded from this scenario. In an earlier manual experiment, its `200` response echoed an update that an independent GET did not find persisted.
 
+## Noble authentication checks
+
+All cases read `/api/collections/products/records` with the same `project_id` and `x-reqres-env`.
+
+| Case | Expected response | Additional checks |
+|---|---|---|
+| Valid key | 200 | No `error` field; `data` exists and is a list (an empty list is allowed) |
+| Invalid key | 403 | `error` exists and equals `invalid_api_key` |
+| Missing key | 401 | `error` exists and equals `missing_api_key` |
+
+The successful case uses `api_session`. The two rejection cases share a parametrized test and use direct `requests.get` calls with explicit headers, so the fixture's valid key cannot accidentally authenticate the missing-key case. Success and rejection checks are separate functions; no conditional branch is needed in the assertions.
+
+The rejection check was verified by deliberately breaking an expected status and then an expected error string. Each run failed at the corresponding assertion while the other cases still ran. Correct expectations have been restored.
+
 ## Classic users tests
 
 | Test | Current assertions |
 |---|---|
-| `test_request_without_api_key_returns_401` | 401, `missing_api_key`, and presence of `message` |
-| `test_api_key_accepted_in_query_param` | 200 and the requested page when the key is supplied in the query |
+| `test_request_without_reqres_api_key_returns_401` | 401, `missing_api_key`, and presence of `message` |
+| `test_reqres_api_key_accepted_in_query_param` | 200 and the requested page when the key is supplied in the query |
 | `test_get_users_list_returns_requested_page` | 200 and the requested page with header authentication |
-| `test_request_with_invalid_api_key_in_query_returns_403` | 403 and `invalid_api_key` |
+| `test_request_with_invalid_reqres_api_key_in_query_returns_403` | 403 and `invalid_api_key` |
 | `test_get_single_user_returns_expected_user` | 200, a `data` envelope, integer ID and the requested ID value |
 | `test_get_nonexistent_user_returns_404` | 404 with valid authentication supplied |
 | `test_create_user_returns_201` | 201, echoed name/job, presence of `createdAt`/`id`, and integer ID |
@@ -98,17 +124,17 @@ The malformed-body test uses `data=` and an explicit `Content-Type`; other JSON 
 
 ### Validation and unresolved observations
 
-- After the fixture was moved to `conftest.py`, the learner reported **1 passed** for the product lifecycle. Collection was separately verified: **9 tests collected**, without HTTP requests.
+- On 24 September 2026, the learner reported **4 passed in 2.61s** for all of `test_products.py`: three authentication cases and the lifecycle. This is not a full-suite result.
 - The last learner-reported full run, before the fixture/configuration refactor, was **7 passed, 2 failed**. The complete suite has not been rerun after that refactor.
-- The missing-key test expected `401` but received `200`. The cause remains unverified; caching is only a hypothesis.
+- An exploratory header-authentication matrix on classic `/api/users` returned `200` and identical demo bodies with valid, invalid and absent keys. Each body identified a read-only demo with `_meta.context == "legacy_success"`. That matrix was moved to Noble. The older classic tests expecting authentication rejection still need review; a successful query-key request alone does not prove the server validated the key.
+- Documentation checked on 18 September was inconsistent: the [ReqRes guide](https://reqres.in/llm.txt) described demo endpoints as public, while [OpenAPI](https://reqres.in/openapi.json) declared API-key security for them. Preserve that distinction when reviewing expectations; the observed public demo responses are not sufficient evidence of an authorization bypass.
 - The classic POST test expected an integer ID but received a string (for example, `'395'`). A difference from the GET representation alone does not establish a server defect: the endpoint contracts need to be checked separately.
 
-These assertions remain unchanged pending investigation. Neither failure has been marked `xfail`. Earlier manual notes also recorded differences in response envelopes, naming, error fields and documentation links. They are investigation leads, not verified current defects or evidence that a client necessarily crashes.
+The remaining classic assertions are unchanged pending review. They have not been marked `xfail`. Earlier manual notes also recorded differences in response envelopes, naming, error fields and documentation links. They are investigation leads, not verified current defects or evidence that a client necessarily crashes.
 
 ## Next steps
 
-- parameterize the authentication cases and compare the results with a loop-based check
-- investigate the two classic-test failures against the expected contracts
+- review the remaining classic authentication expectations and POST ID-type assertion against the expected contracts
 - practise markers and the distinction between `skip` and `xfail`
 - add JSON Schema validation
 - address product cleanup after a failed lifecycle
