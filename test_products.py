@@ -8,6 +8,7 @@ auth_cases = [
 ]
 
 
+@pytest.mark.smoke
 def test_noble_authentication_valid_key(api_session):
     response = api_session.get(f"{noble_base_url}/api/collections/products/records", timeout=TIMEOUT)
     assert response.status_code == 200, f"Expected 200, received {response.status_code}"

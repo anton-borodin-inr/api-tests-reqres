@@ -12,6 +12,7 @@ A Python learning project for API testing with `requests` and `pytest`. It cover
 | `test_products.py` | Four cases: valid-key access, two parametrized authentication rejections, and the persistent product lifecycle |
 | `config.py` | Loads and validates separate Classic ReqRes and Noble settings, with a shared timeout |
 | `conftest.py` | Provides the `api_session` fixture with shared headers and query parameters |
+| `pytest.ini` | Test discovery settings, registered markers and default verbose output |
 | `.env.example` | Configuration template without API key values |
 
 The goal is to practise checking status codes, response structure, field types and values, and to distinguish observed behaviour from the expected contract.
@@ -48,38 +49,65 @@ Both configuration groups are validated at import time in `config.py`. Exported 
 
 ### Run tests
 
+`pytest.ini` adds `-v` to every run, so the commands below print one line per test case.
+
 Collect tests without sending HTTP requests:
 
 ```bash
-pytest --collect-only -q
+pytest --collect-only
 ```
 
 Run only the persistent lifecycle:
 
 ```bash
-pytest -q test_products.py::test_product_lifecycle
+pytest test_products.py::test_product_lifecycle
 ```
 
 Run only the three Noble authentication cases (GET requests):
 
 ```bash
-pytest -q test_products.py -k authentication
+pytest test_products.py -k authentication
 ```
 
 Run all four Noble cases, including the lifecycle:
 
 ```bash
-pytest -q test_products.py
+pytest test_products.py
 ```
 
 Run the classic tests or the complete suite:
 
 ```bash
-pytest -q test_users.py
-pytest -v
+pytest test_users.py
+pytest
+```
+
+Run only the smoke set:
+
+```bash
+pytest -m smoke
 ```
 
 The lifecycle creates, updates and deletes a real record. Classic tests also include POST requests. The complete suite is not currently expected to be all green; see the observations below.
+
+## Markers
+
+Custom markers are registered in `pytest.ini`. `--strict-markers` turns an unregistered or misspelled marker into a collection error instead of a silent no-op.
+
+| Marker | Meaning | Tests |
+|---|---|---|
+| `smoke` | Basic health check: fast, read-only, no data created | `test_noble_authentication_valid_key` |
+| `xfail(strict=True)` | Built-in: known failure caused by the observed string POST ID. The test still runs; an unexpected pass fails the run, signalling that the marker should be removed | `test_create_user_returns_201` |
+
+`smoke` is a custom marker and must be registered; `xfail` and `skip` are built into pytest. `skip` does not run a test and says nothing about the product; `xfail` runs it and reports whether the known failure is still present.
+
+**Known limitation:** the `xfail` marker currently covers the whole POST test, so any failure in it, including a wrong status code, is reported as expected. The next step is to move the ID-type check into its own marked test.
+
+To see skip and xfail reasons in the summary:
+
+```bash
+pytest -rxXs
+```
 
 ## Persistent product lifecycle
 
@@ -117,7 +145,7 @@ The rejection check was verified by deliberately breaking an expected status and
 | `test_request_with_invalid_reqres_api_key_in_query_returns_403` | 403 and `invalid_api_key` |
 | `test_get_single_user_returns_expected_user` | 200, a `data` envelope, integer ID and the requested ID value |
 | `test_get_nonexistent_user_returns_404` | 404 with valid authentication supplied |
-| `test_create_user_returns_201` | 201, echoed name/job, presence of `createdAt`/`id`, and integer ID |
+| `test_create_user_returns_201` | 201, echoed name/job, presence of `createdAt`/`id`, and integer ID. Marked `xfail(strict=True)` |
 | `test_post_malformed_json_returns_400` | 400 and `invalid_json` for deliberately truncated JSON |
 
 The malformed-body test uses `data=` and an explicit `Content-Type`; other JSON submissions use `json=`.
@@ -130,12 +158,13 @@ The malformed-body test uses `data=` and an explicit `Content-Type`; other JSON 
 - Documentation checked on 18 September was inconsistent: the [ReqRes guide](https://reqres.in/llm.txt) described demo endpoints as public, while [OpenAPI](https://reqres.in/openapi.json) declared API-key security for them. Preserve that distinction when reviewing expectations; the observed public demo responses are not sufficient evidence of an authorization bypass.
 - The classic POST test expected an integer ID but received a string (for example, `'395'`). A difference from the GET representation alone does not establish a server defect: the endpoint contracts need to be checked separately.
 
-The remaining classic assertions are unchanged pending review. They have not been marked `xfail`. Earlier manual notes also recorded differences in response envelopes, naming, error fields and documentation links. They are investigation leads, not verified current defects or evidence that a client necessarily crashes.
+The remaining classic assertions are unchanged pending review. Apart from the POST test, they have not been marked `xfail`. Earlier manual notes also recorded differences in response envelopes, naming, error fields and documentation links. They are investigation leads, not verified current defects or evidence that a client necessarily crashes.
 
 ## Next steps
 
 - review the remaining classic authentication expectations and POST ID-type assertion against the expected contracts
-- practise markers and the distinction between `skip` and `xfail`
+- move the POST ID-type check into its own test marked `xfail(strict=True)`, keeping the other POST checks unmarked
+- decide which other tests belong in the smoke set
 - add JSON Schema validation
 - address product cleanup after a failed lifecycle
 - build a separate suite for an API with pagination and filtering
