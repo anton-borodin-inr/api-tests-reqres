@@ -8,7 +8,7 @@ A Python learning project for API testing with `requests` and `pytest`. It cover
 
 | File | Purpose |
 |---|---|
-| `test_users.py` | Eight classic `/api/users` tests: authentication, pagination, response fields, missing resources and malformed JSON |
+| `test_users.py` | Nine classic `/api/users` tests: authentication, pagination, response fields, missing resources, malformed JSON and an expected-failure check for the POST ID type |
 | `test_products.py` | Four cases: valid-key access, two parametrized authentication rejections, and the persistent product lifecycle |
 | `config.py` | Loads and validates separate Classic ReqRes and Noble settings, with a shared timeout |
 | `conftest.py` | Provides the `api_session` fixture with shared headers and query parameters |
@@ -97,11 +97,15 @@ Custom markers are registered in `pytest.ini`. `--strict-markers` turns an unreg
 | Marker | Meaning | Tests |
 |---|---|---|
 | `smoke` | Basic health check: fast, read-only, no data created | `test_noble_authentication_valid_key` |
-| `xfail(strict=True)` | Built-in: known failure caused by the observed string POST ID. The test still runs; an unexpected pass fails the run, signalling that the marker should be removed | `test_create_user_returns_201` |
+| `xfail(strict=True, raises=AssertionError)` | Built-in: known failure caused by the observed string POST ID. The test still runs; only an `AssertionError` counts as the expected failure, and an unexpected pass fails the run, signalling that the marker should be removed | `test_create_user_returns_integer_id` |
 
 `smoke` is a custom marker and must be registered; `xfail` and `skip` are built into pytest. `skip` does not run a test and says nothing about the product; `xfail` runs it and reports whether the known failure is still present.
 
-**Known limitation:** the `xfail` marker currently covers the whole POST test, so any failure in it, including a wrong status code, is reported as expected. The next step is to move the ID-type check into its own marked test.
+The marker is scoped to the ID-type check only. The other POST checks live in the unmarked `test_create_user_returns_201`. Inside the marked test, the status precondition fails through `pytest.fail()`, whose exception (`Failed`) does not inherit from `AssertionError`, so a wrong status is reported as an ordinary failure rather than as the expected one. The failure message includes the status code and the first 300 characters of the body. A transport error, a non-JSON body or a missing `id` key also raise exceptions outside `raises` and are reported as ordinary failures.
+
+This was verified with three runs of the marked test: unchanged (**XFAIL**), with a deliberately broken path (**FAILED**, `Expected 201, got 404`), and with the expected type temporarily changed to `str` (**FAILED**, `[XPASS(strict)]`). The original code has been restored.
+
+**Known limitation:** the precondition checks the status code, not the endpoint. If the server answers `201` on an unintended path, the marked test can still report XFAIL (see the observations below).
 
 To see skip and xfail reasons in the summary:
 
@@ -145,7 +149,8 @@ The rejection check was verified by deliberately breaking an expected status and
 | `test_request_with_invalid_reqres_api_key_in_query_returns_403` | 403 and `invalid_api_key` |
 | `test_get_single_user_returns_expected_user` | 200, a `data` envelope, integer ID and the requested ID value |
 | `test_get_nonexistent_user_returns_404` | 404 with valid authentication supplied |
-| `test_create_user_returns_201` | 201, echoed name/job, presence of `createdAt`/`id`, and integer ID. Marked `xfail(strict=True)` |
+| `test_create_user_returns_201` | 201, echoed name/job, presence of `createdAt`/`id` |
+| `test_create_user_returns_integer_id` | 201 as a precondition, then an integer `id`. Marked `xfail(strict=True, raises=AssertionError)` |
 | `test_post_malformed_json_returns_400` | 400 and `invalid_json` for deliberately truncated JSON |
 
 The malformed-body test uses `data=` and an explicit `Content-Type`; other JSON submissions use `json=`.
@@ -153,17 +158,19 @@ The malformed-body test uses `data=` and an explicit `Content-Type`; other JSON 
 ### Validation and unresolved observations
 
 - On 24 September 2026, the learner reported **4 passed in 2.61s** for all of `test_products.py`: three authentication cases and the lifecycle. This is not a full-suite result.
-- The last learner-reported full run, before the fixture/configuration refactor, was **7 passed, 2 failed**. The complete suite has not been rerun after that refactor.
+- On 13 October 2026, the learner reported **1 failed, 7 passed, 1 xfailed** for all of `test_users.py`. The failure is `test_request_without_reqres_api_key_returns_401`, which received `200` (see the next observation); the xfail is the POST ID-type check.
+- The complete suite (`pytest` without arguments) has not been rerun after the fixture/configuration refactor.
 - An exploratory header-authentication matrix on classic `/api/users` returned `200` and identical demo bodies with valid, invalid and absent keys. Each body identified a read-only demo with `_meta.context == "legacy_success"`. That matrix was moved to Noble. The older classic tests expecting authentication rejection still need review; a successful query-key request alone does not prove the server validated the key.
 - Documentation checked on 18 September was inconsistent: the [ReqRes guide](https://reqres.in/llm.txt) described demo endpoints as public, while [OpenAPI](https://reqres.in/openapi.json) declared API-key security for them. Preserve that distinction when reviewing expectations; the observed public demo responses are not sufficient evidence of an authorization bypass.
-- The classic POST test expected an integer ID but received a string (for example, `'395'`). A difference from the GET representation alone does not establish a server defect: the endpoint contracts need to be checked separately.
+- The POST ID-type test expects an integer ID but receives a string (for example, `'61'`), while GET returns an integer. The `xfail` reason records this observed difference. A difference from the GET representation alone does not establish a server defect: the endpoint contracts need to be checked separately.
+- During a deliberate-break run on 13 October, a POST to `/api/user` (singular) also returned `201` with a string `id`. The demo may accept arbitrary resource names; this has not been investigated yet.
 
-The remaining classic assertions are unchanged pending review. Apart from the POST test, they have not been marked `xfail`. Earlier manual notes also recorded differences in response envelopes, naming, error fields and documentation links. They are investigation leads, not verified current defects or evidence that a client necessarily crashes.
+The remaining classic assertions are unchanged pending review. Apart from the POST ID-type test, they have not been marked `xfail`. Earlier manual notes also recorded differences in response envelopes, naming, error fields and documentation links. They are investigation leads, not verified current defects or evidence that a client necessarily crashes.
 
 ## Next steps
 
-- review the remaining classic authentication expectations and POST ID-type assertion against the expected contracts
-- move the POST ID-type check into its own test marked `xfail(strict=True)`, keeping the other POST checks unmarked
+- review the remaining classic authentication expectations and the POST ID-type expectation against the expected contracts
+- check whether the classic demo accepts POST requests to arbitrary resource names
 - decide which other tests belong in the smoke set
 - add JSON Schema validation
 - address product cleanup after a failed lifecycle

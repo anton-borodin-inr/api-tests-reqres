@@ -49,7 +49,6 @@ def test_get_nonexistent_user_returns_404():
     assert response.status_code == 404, f"Expected 404 for nonexistent user, got {response.status_code}"
 
 
-@pytest.mark.xfail(reason="POST returns a string id; test expects an integer", strict=True)
 def test_create_user_returns_201():
     payload = {"name": "anton", "job": "qa"}
     response = requests.post(f"{reqres_base_url}/api/users", headers=REQRES_AUTH_HEADERS, json=payload, timeout=TIMEOUT)
@@ -59,6 +58,15 @@ def test_create_user_returns_201():
     assert body["job"] == payload["job"], f"Expected job {payload['job']}, got {body['job']}"
     assert "createdAt" in body
     assert "id" in body
+
+
+@pytest.mark.xfail(reason="POST /api/users returns 'id' as a string, while GET /api/users/{id} returns it as an integer", strict=True, raises=AssertionError)
+def test_create_user_returns_integer_id():
+    payload = {"name": "anton", "job": "qa"}
+    response = requests.post(f"{reqres_base_url}/api/users", headers=REQRES_AUTH_HEADERS, json=payload, timeout=TIMEOUT)
+    if response.status_code != 201:
+        pytest.fail(f"Expected 201, got {response.status_code}, body: {response.text[:300]}")
+    body = response.json()
     assert isinstance(body["id"], int), f"Expected 'id' to be int, got {type(body['id']).__name__}"
 
 
