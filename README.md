@@ -2,7 +2,7 @@
 
 A Python learning project for API testing with `requests` and `pytest`. It covers two separate ReqRes surfaces: classic `/api/users` examples and a persistent `products` collection in `noble-harbor-api`.
 
-**Stack:** Python 3.14 · `requests` · `pytest` · `python-dotenv`
+**Stack:** Python 3.14 · `requests` · `pytest` · `python-dotenv` · `jsonschema`
 
 ## Project structure
 
@@ -11,7 +11,8 @@ A Python learning project for API testing with `requests` and `pytest`. It cover
 | `test_users.py` | Nine classic `/api/users` tests: authentication, pagination, response fields, missing resources, malformed JSON and an expected-failure check for the POST ID type |
 | `test_products.py` | Four cases: valid-key access, two parametrized authentication rejections, and the persistent product lifecycle |
 | `config.py` | Loads and validates separate Classic ReqRes and Noble settings, with a shared timeout |
-| `conftest.py` | Provides the `api_session` fixture with shared headers and query parameters |
+| `conftest.py` | Provides the `api_session` fixture with shared headers and query parameters, and the `product_record_schema` fixture that loads the product record schema |
+| `schemas/product_record.schema.json` | JSON Schema for a single active product record response from `noble-harbor-api` |
 | `pytest.ini` | Test discovery settings, registered markers and default verbose output |
 | `.env.example` | Configuration template without API key values |
 
@@ -125,6 +126,25 @@ Independent GET requests check persistence: a successful mutation response or an
 
 PATCH is excluded from this scenario. In an earlier manual experiment, its `200` response echoed an update that an independent GET did not find persisted.
 
+## JSON Schema for product records
+
+`schemas/product_record.schema.json` (draft 2020-12) describes the response to a request for a single **active** product record: a root object with a required `data` envelope, and the record metadata inside it.
+
+| Field | Type | Note |
+|---|---|---|
+| `id`, `collection_id`, `created_at`, `updated_at` | string | No `format` keyword: without an extra package, `jsonschema` silently skips `date-time` checks |
+| `project_id`, `created_by` | integer | Identifiers are whole numbers |
+| `app_user_id`, `deleted_at` | null | Only `null` has been observed for active records; any other value fails the check and needs investigation |
+| `data` (product fields) | object | Contents are compared with the submitted payload in the test, not described by the schema: the server accepts arbitrary product fields |
+
+All listed fields are required. `additionalProperties` is not restricted: new fields from the server are treated as normal API evolution. Required fields are based on POST responses so far and are still to be confirmed against GET responses. A soft-deleted record (`include_deleted=true`) would fail this schema because its `deleted_at` is filled.
+
+The `product_record_schema` fixture (`scope="session"`) builds the path from the location of `conftest.py`, so it does not depend on the directory pytest is started from, reads the file and returns the schema as a dictionary. The file is read only when a test requests the fixture: a missing or broken schema file is reported as an **ERROR at setup** for the requesting tests and does not affect collection of the other tests.
+
+This was verified with a temporary test: unchanged, the fixture returned a dictionary with the expected root `required` list; with a deliberately broken file name, the test reported `ERROR at setup` with `FileNotFoundError`. The temporary test has been removed.
+
+The schema is not yet used by any test.
+
 ## Noble authentication checks
 
 All cases read `/api/collections/products/records` with the same `project_id` and `x-reqres-env`.
@@ -172,6 +192,7 @@ The remaining classic assertions are unchanged pending review. Apart from the PO
 - review the remaining classic authentication expectations and the POST ID-type expectation against the expected contracts
 - check whether the classic demo accepts POST requests to arbitrary resource names
 - decide which other tests belong in the smoke set
-- add JSON Schema validation
+- validate the POST, GET and PUT responses of the product lifecycle against the product record schema and remove the presence and type assertions it replaces
+- confirm the schema's required fields against GET responses
 - address product cleanup after a failed lifecycle
 - build a separate suite for an API with pagination and filtering
